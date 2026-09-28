@@ -1,0 +1,11 @@
+services:
+  agent-bot:
+    build: .
+    container_name: antigravity_telegram_agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./workspace:/app/workspace
+    ports:
+      - "8080:8080"
