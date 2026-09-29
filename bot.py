@@ -40,6 +40,7 @@ try:
     from .config import (
         TELEGRAM_BOT_TOKEN,
         ALLOWED_TELEGRAM_USERS,
+        ALLOWED_USERNAMES,
         SECTIONS,
         PORT,
         RENDER_EXTERNAL_URL,
@@ -75,6 +76,7 @@ except ImportError:
     from config import (
         TELEGRAM_BOT_TOKEN,
         ALLOWED_TELEGRAM_USERS,
+        ALLOWED_USERNAMES,
         SECTIONS,
         PORT,
         RENDER_EXTERNAL_URL,
@@ -121,14 +123,35 @@ dp = Dispatcher(storage=MemoryStorage())
 class RenameState(StatesGroup):
     waiting_for_title = State()
 
-def is_authorized(user_id: int) -> bool:
-    """Foydalanuvchi ruxsatini tekshirish."""
-    global ALLOWED_TELEGRAM_USERS
-    if not ALLOWED_TELEGRAM_USERS:
-        ALLOWED_TELEGRAM_USERS.append(user_id)
-        logger.info(f"Yangi administrator biriktirildi: {user_id}")
+def is_authorized(user) -> bool:
+    """Faqat @satka8491 akkauntiga va uning tasdiqlangan ID raqamiga ruxsat berish."""
+    if not user:
+        return False
+    uname = (user.username or "").strip().lower().lstrip("@")
+    uid = user.id
+    if uname in ALLOWED_USERNAMES or uid in ALLOWED_TELEGRAM_USERS:
         return True
-    return user_id in ALLOWED_TELEGRAM_USERS
+    return False
+
+UNAUTHORIZED_MESSAGE = (
+    "⛔ *Kirish taqiqlangan!*\n\n"
+    "Ushbu bot shaxsiy boʻlib, faqat *@satka8491* akkaunti uchun xizmat qiladi. "
+    "Boshqa foydalanuvchilar undan foydalana olmaydi."
+)
+
+@dp.message.outer_middleware()
+async def check_message_auth(handler, event: Message, data: dict):
+    if not is_authorized(event.from_user):
+        await event.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
+        return
+    return await handler(event, data)
+
+@dp.callback_query.outer_middleware()
+async def check_callback_auth(handler, event: CallbackQuery, data: dict):
+    if not is_authorized(event.from_user):
+        await event.answer("⛔ Kirish taqiqlangan! Faqat @satka8491 uchun.", show_alert=True)
+        return
+    return await handler(event, data)
 
 async def send_long_message(message: Message, text: str):
     """Uzun matnlarni Telegram chegarasi (4096 belgi) bo'yicha bo'lib yuborish."""
@@ -173,13 +196,8 @@ async def handle_start(message: Message, state: FSMContext):
     username = message.from_user.username or ""
     first_name = message.from_user.first_name or "Foydalanuvchi"
 
-    if not is_authorized(user_id):
-        await message.answer(
-            f"🛡 *Assalomu alaykum, {first_name}!* \n\n"
-            f"Bu shaxsiy agent bot hisoblanadi. Sizning Telegram ID: `{user_id}`.\n"
-            f"Foydalanish uchun administrator ruxsati zarur.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
 
     get_or_create_user(user_id, username, first_name)
@@ -196,6 +214,7 @@ async def handle_start(message: Message, state: FSMContext):
         f"❓ *Savollar* — Erkin intellektual savol-javoblar\n"
         f"📋 *Rejalar* — Kunlik reja, vazifalar va checklistlar\n"
         f"💡 *G'oyalar* — YouTube Shorts, Reels va yangi startaplar\n\n"
+        f"📊 *Savdo hisob-kitob:* `#savdo`, `#hisobot-savdo`, `#jadval` teglari bilan ro'yxat yoki chek yuborsangiz, avtomatik hisoblab chiroyli jadval qilib beradi.\n\n"
         f"📌 *Asosiy afzalligi:* Har bir bo'limda o'zingiz xohlagancha alohida sahifalar ochishingiz mumkin. "
         f"Mavzular bir-biriga aslo aralashib ketmaydi!\n\n"
         f"Quyidagi tugmalardan kerakli bo'limni tanlang:"
@@ -209,16 +228,17 @@ async def handle_start(message: Message, state: FSMContext):
 
 @dp.message(Command("help"))
 async def handle_help(message: Message):
-    if not is_authorized(message.from_user.id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
 
     text = (
         f"📖 *QO'LLANMA VA IMKONIYATLAR:*\n\n"
         f"1️⃣ *Bo'lim tanlash:* Pastdagi tugmalar orqali kerakli bo'limga o'ting (Biznes, Dasturlash, Tibbiyot...).\n\n"
-        f"2️⃣ *Alohida Sahifalar:* Har bir bo'lim ichida '➕ Yangi Sahifa' tugmasini bosib, yangi mavzu boshlashingiz mumkin. "
-        f"Masalan, Tibbiyot bo'limida 1-sahifada 'Bosh og'rig'i', 2-sahifada 'Operatsiyadan keyingi tiklanish' mavzusi saqlanadi.\n\n"
-        f"3️⃣ *Sahifalarni boshqarish:* '📚 Sahifalarim' tugmasi orqali avvalgi barcha sahifalaringizni ko'rishingiz, nomini o'zgartirishingiz yoki .txt formatida yuklab olishingiz mumkin.\n\n"
-        f"4️⃣ *24/7 Mustaqil rejim:* Ushbu bot bulutli serverda joylashgan bo'lib, kompyuteringiz o'chiq bo'lsa ham kecha-yu kunduz mustaqil xizmat qiladi.\n\n"
+        f"2️⃣ *Alohida Sahifalar:* Har bir bo'lim ichida '➕ Yangi Sahifa' tugmasini bosib, yangi mavzu boshlashingiz mumkin.\n\n"
+        f"3️⃣ *Savdo va Hisob-kitob:* `#savdo` yoki `#hisobot-savdo` tegi bilan tovarlar ro'yxatini yozsangiz yoki chek rasmini yuborsangiz, bot darhol hisoblab `#jadval` ko'rinishida beradi.\n\n"
+        f"4️⃣ *Sahifalarni boshqarish:* '📚 Sahifalarim' tugmasi orqali avvalgi barcha sahifalaringizni ko'rishingiz, nomini o'zgartirishingiz yoki .txt formatida yuklab olishingiz mumkin.\n\n"
+        f"5️⃣ *24/7 Mustaqil rejim:* Kompyuteringiz o'chiq bo'lsa ham bot bulutda (Render) kecha-yu kunduz mustaqil xizmat qiladi.\n\n"
         f"🔹 `/start` - Botni qayta ishga tushirish\n"
         f"🔹 `/status` - Server va model holatini ko'rish\n"
         f"🔹 `/new` - Yangi sahifa ochish\n"
@@ -228,7 +248,8 @@ async def handle_help(message: Message):
 
 @dp.message(Command("status"))
 async def handle_status(message: Message):
-    if not is_authorized(message.from_user.id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
 
     user_id = message.from_user.id
@@ -240,17 +261,18 @@ async def handle_status(message: Message):
         f"📊 *AGENT VA BULUT HOLATI:*\n\n"
         f"🤖 *AI Modeli:* `{MODEL_NAME or 'gemini-3.8-flash'}`\n"
         f"🟢 *Bulut Holati:* 24/7 Faol (Render Cloud)\n"
+        f"👤 *Foydalanuvchi:* @satka8491 (ID: `{user_id}`)\n"
         f"📁 *Joriy Bo'lim:* `{SECTIONS.get(sec_key, {}).get('title')}`\n"
         f"📄 *Faol Sahifa:* `{page['title']}`\n"
-        f"📚 *Ushbu bo'limdagi sahifalar:* {len(pages)} ta\n"
-        f"👤 *Foydalanuvchi ID:* `{user_id}`\n\n"
+        f"📚 *Ushbu bo'limdagi sahifalar:* {len(pages)} ta\n\n"
         f"⚡ _Kompyuter o'chirilgan holatda ham bot uzluksiz ishlamoqda._"
     )
     await message.answer(text, parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command("new"))
 async def handle_cmd_new(message: Message):
-    if not is_authorized(message.from_user.id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
     user_id = message.from_user.id
     sec_key = get_active_section(user_id)
@@ -268,7 +290,8 @@ async def handle_cmd_new(message: Message):
 
 @dp.message(Command("pages"))
 async def handle_cmd_pages(message: Message):
-    if not is_authorized(message.from_user.id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
     user_id = message.from_user.id
     sec_key = get_active_section(user_id)
@@ -298,9 +321,10 @@ SECTION_REPLY_MAP = {
 @dp.message(F.text.in_(SECTION_REPLY_MAP.keys()))
 async def handle_section_button(message: Message, state: FSMContext):
     await state.clear()
-    user_id = message.from_user.id
-    if not is_authorized(user_id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
+    user_id = message.from_user.id
 
     sec_key = SECTION_REPLY_MAP[message.text]
     set_active_section(user_id, sec_key)
@@ -319,9 +343,10 @@ async def handle_section_button(message: Message, state: FSMContext):
 @dp.message(F.text == "📄 Joriy Sahifa")
 async def handle_current_page_button(message: Message, state: FSMContext):
     await state.clear()
-    user_id = message.from_user.id
-    if not is_authorized(user_id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
+    user_id = message.from_user.id
 
     sec_key = get_active_section(user_id)
     page = get_or_create_active_page(user_id, sec_key)
@@ -339,9 +364,10 @@ async def handle_current_page_button(message: Message, state: FSMContext):
 @dp.message(F.text == "📚 Sahifalarim")
 async def handle_my_pages_button(message: Message, state: FSMContext):
     await state.clear()
-    user_id = message.from_user.id
-    if not is_authorized(user_id):
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
         return
+    user_id = message.from_user.id
 
     sec_key = get_active_section(user_id)
     pages = get_pages_for_section(user_id, sec_key)
