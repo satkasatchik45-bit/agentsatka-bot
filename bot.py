@@ -694,50 +694,41 @@ async def main():
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     logger.info("Bot tayyorlandi...")
 
-    app = web.Application()
-    app.router.add_get("/", health_check_handler)
-    app.router.add_get("/health", health_check_handler)
+    # 1. Render va Cloud uchun HTTP server (Port binding & Health check)
+    runner = None
+    try:
+        app = web.Application()
+        app.router.add_get("/", health_check_handler)
+        app.router.add_get("/health", health_check_handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+        logger.info(f"Render HTTP server 0.0.0.0:{PORT} da muvaffaqiyatli ochildi.")
+    except Exception as e:
+        logger.warning(f"HTTP serverni ishga tushirishda ogohlantirish: {e}")
 
-    # Render.com URL mavjud bo'lsa
+    # 2. Render Free instance uxlab qolmasligi uchun fon pinger
     if RENDER_EXTERNAL_URL:
-        webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
-        logger.info(f"Webhook sozlanmoqda: {webhook_url}")
-        await bot.set_webhook(
-            url=webhook_url,
-            secret_token=WEBHOOK_SECRET,
-            drop_pending_updates=True
-        )
-
-        SimpleRequestHandler(
-            dispatcher=dp,
-            bot=bot,
-            secret_token=WEBHOOK_SECRET
-        ).register(app, path=WEBHOOK_PATH)
-        setup_application(app, dp, bot=bot)
-
-        # Self-ping fon topshirig'i
         asyncio.create_task(self_ping_loop(RENDER_EXTERNAL_URL))
 
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        logger.info(f"Web server 0.0.0.0:{PORT} da ishga tushdi.")
-        await site.start()
-
-        # Cheksiz kutish (Web server ishlab turishi uchun)
+    # 3. Telegram Polling (Doimiy xabarlarni tinglash)
+    try:
         while True:
-            await asyncio.sleep(3600)
-    else:
-        # Mahalliy Polling rejimi (kompyuterda ishlatilganda)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
-        logger.info(f"Mahalliy HTTP server {PORT}-portda ishga tushdi.")
-
-        await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Polling rejimi ishga tushdi...")
-        await dp.start_polling(bot)
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Telegram polling faol ishlamoqda...")
+                await dp.start_polling(bot)
+            except (KeyboardInterrupt, SystemExit):
+                break
+            except Exception as e:
+                logger.warning(f"Telegram tarmog'ida vaqtinchalik uzilish ({e}). 4 soniyadan so'ng qayta ulanadi...")
+                await asyncio.sleep(4)
+    finally:
+        if runner:
+            await runner.cleanup()
+        if bot:
+            await bot.session.close()
 
 if __name__ == "__main__":
     try:
