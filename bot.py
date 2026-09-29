@@ -66,11 +66,15 @@ try:
     )
     from .keyboards import (
         get_main_reply_keyboard,
+        get_collapsed_reply_keyboard,
+        get_expanded_reply_keyboard,
+        get_collapsible_inline_panel,
         get_section_inline_keyboard,
         get_pages_list_keyboard,
         get_page_action_keyboard,
         get_confirm_keyboard
     )
+    from .webapp import WEBAPP_HTML
     from .ai_service import ai_service
     from .cloud_manager import (
         setup_cloud_logging,
@@ -108,11 +112,15 @@ except ImportError:
     )
     from keyboards import (
         get_main_reply_keyboard,
+        get_collapsed_reply_keyboard,
+        get_expanded_reply_keyboard,
+        get_collapsible_inline_panel,
         get_section_inline_keyboard,
         get_pages_list_keyboard,
         get_page_action_keyboard,
         get_confirm_keyboard
     )
+    from webapp import WEBAPP_HTML
     from ai_service import ai_service
     from cloud_manager import (
         setup_cloud_logging,
@@ -138,11 +146,14 @@ class RenameState(StatesGroup):
 
 def is_authorized(user) -> bool:
     """Faqat @satka8491 akkauntiga va uning tasdiqlangan ID raqamiga ruxsat berish."""
-    if not user:
+    if user is None:
         return False
-    uname = (user.username or "").strip().lower().lstrip("@")
-    uid = user.id
-    if uname in ALLOWED_USERNAMES or uid in ALLOWED_TELEGRAM_USERS:
+    if isinstance(user, int):
+        return user in ALLOWED_TELEGRAM_USERS
+    uid = getattr(user, "id", None)
+    uname = getattr(user, "username", None) or ""
+    clean_uname = uname.strip().lower().lstrip("@")
+    if (uid and uid in ALLOWED_TELEGRAM_USERS) or (clean_uname and clean_uname in ALLOWED_USERNAMES):
         return True
     return False
 
@@ -219,23 +230,24 @@ async def handle_start(message: Message, state: FSMContext):
 
     welcome_text = (
         f"👋 *Assalomu alaykum, {first_name}!* \n"
-        f"🤖 *@agentsatka_bot* ning yangi ko'p sahifali tizimiga xush kelibsiz!\n\n"
-        f"Ushbu bot barcha sohalaringizni tartibli va alohida sahifalarda boshqarish uchun yaratilgan:\n\n"
-        f"💼 *Biznes* — Moliya, biznes reja, savdo va strategiya\n"
-        f"💻 *Dasturlash* — Kodlar, Python, Web, xatolarni tuzatish\n"
-        f"🩺 *Tibbiyot* — Nevrologiya, neyrojarrohlik, tahlillar\n"
-        f"❓ *Savollar* — Erkin intellektual savol-javoblar\n"
-        f"📋 *Rejalar* — Kunlik reja, vazifalar va checklistlar\n"
-        f"💡 *G'oyalar* — YouTube Shorts, Reels va yangi startaplar\n\n"
+        f"🤖 *@agentsatka_bot* 100% bulutda (Render.com) faol ishlamoqda!\n\n"
+        f"🔘 *Yangi Ixcham Dizayn (O'ng yonga ustun shaklida):*\n"
+        f"• Pastdagi menyu ixchamlashdi — ekranni to'sib qo'ymasligi uchun `▫️ ⫶ Bo'limlar` orqali 1 ustun qilib ochishingiz yoki `👁️ Yashirish` orqali yashirib qo'yishingiz mumkin.\n"
+        f"• Yoki pastdagi `📱 60% Shaffof Panel` orqali o'ng tomonga joylashgan shaffof panelni ochishingiz mumkin!\n\n"
+        f"💼 *Biznes* | 💻 *Dasturlash* | 🩺 *Tibbiyot*\n"
+        f"❓ *Savollar* | 📋 *Rejalar* | 💡 *G'oyalar*\n\n"
         f"📊 *Savdo hisob-kitob:* `#savdo`, `#hisobot-savdo`, `#jadval` teglari bilan ro'yxat yoki chek yuborsangiz, avtomatik hisoblab chiroyli jadval qilib beradi.\n\n"
-        f"📌 *Asosiy afzalligi:* Har bir bo'limda o'zingiz xohlagancha alohida sahifalar ochishingiz mumkin. "
-        f"Mavzular bir-biriga aslo aralashib ketmaydi!\n\n"
         f"Quyidagi tugmalardan kerakli bo'limni tanlang:"
     )
 
     await message.answer(
         welcome_text,
-        reply_markup=get_main_reply_keyboard(),
+        reply_markup=get_collapsed_reply_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await message.answer(
+        f"📁 Joriy bo'lim: *{SECTIONS.get(active_sec, {}).get('title')}* (Sahifa: `{active_page['title']}`)",
+        reply_markup=get_collapsible_inline_panel(is_expanded=False, active_section=active_sec, webapp_url=RENDER_EXTERNAL_URL),
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -348,8 +360,47 @@ SECTION_REPLY_MAP = {
     "🩺 Tibbiyot": "tibbiyot",
     "❓ Savollar": "savollar",
     "📋 Rejalar": "rejalar",
-    "💡 G'oyalar": "goyalar"
+    "💡 G'oyalar": "goyalar",
+    "▫️ 💼 Biznes": "biznes",
+    "▫️ 💻 Dasturlash": "dasturlash",
+    "▫️ 🩺 Tibbiyot": "tibbiyot",
+    "▫️ ❓ Savollar": "savollar",
+    "▫️ 📋 Rejalar": "rejalar",
+    "▫️ 💡 G'oyalar": "goyalar"
 }
+
+@dp.message(F.text.in_(["▫️ ⫶ Bo'limlar", "⫶ Bo'limlar", "Bo'limlar", "/menu"]))
+async def handle_show_sections_column(message: Message, state: FSMContext):
+    await state.clear()
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
+        return
+    user_id = message.from_user.id
+    sec_key = get_active_section(user_id)
+    await message.answer(
+        "📁 *BO'LIMLAR USTUNI (1 ustun shaklida):*\n\n"
+        "Kerakli bo'limni tanlang yoki menyuni yashirish uchun *👁️ Yashirish* tugmasini bosing:",
+        reply_markup=get_expanded_reply_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await message.answer(
+        "📱 *O'ng yondagi 60% Shaffof Panel:*",
+        reply_markup=get_collapsible_inline_panel(is_expanded=True, active_section=sec_key, webapp_url=RENDER_EXTERNAL_URL),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+@dp.message(F.text.in_(["👁️ Yashirish", "Yashirish", "❌ Yashirish"]))
+async def handle_hide_sections_column(message: Message, state: FSMContext):
+    await state.clear()
+    if not is_authorized(message.from_user):
+        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
+        return
+    await message.answer(
+        "👁️ *Bo'limlar menyusi yashirildi.*\n"
+        "Ekranni toza saqlash uchun ixcham rejim yoqildi. Qayta ochish uchun pastdagi `▫️ ⫶ Bo'limlar` tugmasini bosing:",
+        reply_markup=get_collapsed_reply_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 @dp.message(F.text.in_(SECTION_REPLY_MAP.keys()))
 async def handle_section_button(message: Message, state: FSMContext):
@@ -369,32 +420,11 @@ async def handle_section_button(message: Message, state: FSMContext):
     dashboard_text = format_section_dashboard(sec_key, page, msg_count)
     await message.answer(
         dashboard_text,
-        reply_markup=get_section_inline_keyboard(sec_key, page["id"]),
+        reply_markup=get_section_inline_keyboard(sec_key, page["id"], RENDER_EXTERNAL_URL),
         parse_mode=ParseMode.MARKDOWN
     )
 
-@dp.message(F.text == "📄 Joriy Sahifa")
-async def handle_current_page_button(message: Message, state: FSMContext):
-    await state.clear()
-    if not is_authorized(message.from_user):
-        await message.answer(UNAUTHORIZED_MESSAGE, parse_mode=ParseMode.MARKDOWN)
-        return
-    user_id = message.from_user.id
-
-    sec_key = get_active_section(user_id)
-    page = get_or_create_active_page(user_id, sec_key)
-    pages = get_pages_for_section(user_id, sec_key)
-    curr_page = next((p for p in pages if p["id"] == page["id"]), page)
-    msg_count = curr_page.get("message_count", 0)
-
-    dashboard_text = format_section_dashboard(sec_key, page, msg_count)
-    await message.answer(
-        dashboard_text,
-        reply_markup=get_section_inline_keyboard(sec_key, page["id"]),
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-@dp.message(F.text == "📚 Sahifalarim")
+@dp.message(F.text.in_(["📄 Sahifalar", "📄 Joriy Sahifa", "📚 Sahifalarim"]))
 async def handle_my_pages_button(message: Message, state: FSMContext):
     await state.clear()
     if not is_authorized(message.from_user):
@@ -408,14 +438,73 @@ async def handle_my_pages_button(message: Message, state: FSMContext):
 
     await message.answer(
         f"📚 *{sec_title.upper()} BO'LIMIDAGI BARCHA SAHIFALAR:*\n\n"
-        f"Quyidagi ro'yxatdan kerakli sahifani tanlang:",
+        f"Quyidagi ro'yxatdan kerakli sahifani tanlang yoki yangisini oching:",
         reply_markup=get_pages_list_keyboard(pages, sec_key),
         parse_mode=ParseMode.MARKDOWN
     )
 
+@dp.message(F.web_app_data)
+async def handle_webapp_data(message: Message, state: FSMContext):
+    await state.clear()
+    if not is_authorized(message.from_user):
+        return
+    data = message.web_app_data.data
+    sec_key = data.replace("sec_", "")
+    if sec_key in SECTIONS:
+        user_id = message.from_user.id
+        set_active_section(user_id, sec_key)
+        page = get_or_create_active_page(user_id, sec_key)
+        pages = get_pages_for_section(user_id, sec_key)
+        curr_page = next((p for p in pages if p["id"] == page["id"]), page)
+        msg_count = curr_page.get("message_count", 0)
+
+        dashboard_text = format_section_dashboard(sec_key, page, msg_count)
+        await message.answer(
+            f"📱 *60% Shaffof Paneldan tanlandi:*\n\n{dashboard_text}",
+            reply_markup=get_section_inline_keyboard(sec_key, page["id"], RENDER_EXTERNAL_URL),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
 # ==========================================
 # INLINE CALLBACK HANDLERS
 # ==========================================
+
+@dp.callback_query(F.data.startswith("panel:"))
+async def cb_panel_toggle(call: CallbackQuery):
+    action = call.data.split(":", 1)[1]
+    user_id = call.from_user.id
+    sec_key = get_active_section(user_id)
+    is_exp = (action == "expand")
+    try:
+        await call.message.edit_reply_markup(
+            reply_markup=get_collapsible_inline_panel(
+                is_expanded=is_exp,
+                active_section=sec_key,
+                webapp_url=RENDER_EXTERNAL_URL
+            )
+        )
+    except Exception:
+        pass
+    await call.answer()
+
+@dp.callback_query(F.data.startswith("set_sec:"))
+async def cb_set_section(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    user_id = call.from_user.id
+    sec_key = call.data.split(":", 1)[1]
+    set_active_section(user_id, sec_key)
+    page = get_or_create_active_page(user_id, sec_key)
+    pages = get_pages_for_section(user_id, sec_key)
+    curr_page = next((p for p in pages if p["id"] == page["id"]), page)
+    msg_count = curr_page.get("message_count", 0)
+
+    dashboard_text = format_section_dashboard(sec_key, page, msg_count)
+    await call.message.answer(
+        dashboard_text,
+        reply_markup=get_section_inline_keyboard(sec_key, page["id"], RENDER_EXTERNAL_URL),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    await call.answer(f"{SECTIONS.get(sec_key, {}).get('title')} bo'limiga o'tildi!")
 
 @dp.callback_query(F.data.startswith("page_new:"))
 async def cb_new_page(call: CallbackQuery, state: FSMContext):
@@ -652,7 +741,7 @@ async def cb_go_home(call: CallbackQuery):
 @dp.message(F.text)
 async def handle_user_text_message(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    if not is_authorized(user_id):
+    if not is_authorized(message.from_user):
         return
 
     # Agar FSM holatida bo'lsa (masalan qayta nomlash), o'tkazib yuborish
@@ -690,7 +779,7 @@ async def handle_user_text_message(message: Message, state: FSMContext):
 @dp.message(F.photo)
 async def handle_user_photo(message: Message):
     user_id = message.from_user.id
-    if not is_authorized(user_id):
+    if not is_authorized(message.from_user):
         return
 
     sec_key = get_active_section(user_id)
@@ -762,6 +851,9 @@ async def logs_handler(request: web.Request):
     logs = get_recent_logs(80)
     return web.Response(text="\n".join(logs) or "Loglar hali mavjud emas.", content_type="text/plain")
 
+async def webapp_handler(request: web.Request):
+    return web.Response(text=WEBAPP_HTML, content_type="text/html")
+
 async def telegram_webhook_handler(request: web.Request):
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if WEBHOOK_SECRET and secret != WEBHOOK_SECRET:
@@ -792,6 +884,7 @@ async def main():
     app.router.add_get("/", health_check_handler)
     app.router.add_get("/health", health_check_handler)
     app.router.add_get("/logs", logs_handler)
+    app.router.add_get("/webapp", webapp_handler)
     app.router.add_post(WEBHOOK_PATH, telegram_webhook_handler)
 
     runner = web.AppRunner(app)
@@ -814,6 +907,19 @@ async def main():
             logger.info("Telegram Webhook 100% muvaffaqiyatli ulandi!")
         except Exception as e:
             logger.error(f"Webhook o'rnatishda xatolik: {e}")
+
+        # WebApp Menu tugmasini sozlash
+        try:
+            from aiogram.types import MenuButtonWebApp, WebAppInfo
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="📱 60% Shaffof Panel",
+                    web_app=WebAppInfo(url=f"{RENDER_EXTERNAL_URL}/webapp")
+                )
+            )
+            logger.info("Telegram WebApp Menu Button sozlandi!")
+        except Exception as e:
+            logger.warning(f"MenuButton sozlashda ogohlantirish: {e}")
 
         # 2. Render Free instance uxlab qolmasligi uchun ichki va tashqi keep-alive
         asyncio.create_task(self_ping_loop(RENDER_EXTERNAL_URL))
