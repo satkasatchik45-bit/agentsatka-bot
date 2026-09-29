@@ -14,6 +14,16 @@ raw_allowed = os.getenv("ALLOWED_TELEGRAM_USERS", "").strip()
 ALLOWED_TELEGRAM_USERS = [
     int(uid.strip()) for uid in raw_allowed.split(",") if uid.strip().isdigit()
 ]
+if 7213980287 not in ALLOWED_TELEGRAM_USERS:
+    ALLOWED_TELEGRAM_USERS.append(7213980287)
+
+# Faqat ruxsat etilgan Telegram username
+raw_usernames = os.getenv("ALLOWED_USERNAMES", "satka8491").strip()
+ALLOWED_USERNAMES = [
+    u.strip().lower().lstrip("@") for u in raw_usernames.split(",") if u.strip()
+]
+if "satka8491" not in ALLOWED_USERNAMES:
+    ALLOWED_USERNAMES.append("satka8491")
 
 # Google Gemini API sozlamalari
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -95,3 +105,23 @@ SECTIONS = {
         )
     }
 }
+
+SAVDO_INSTRUCTION = """
+📊 MAXSUS KO'NIKMA: SAVDO VA HISOB-KITOB (#savdo, #hisobot-savdo, #jadval)
+Agar foydalanuvchi xabarida yoki yuborgan rasmida (chek, daftardagi ro'yxat, tovarlar yozuvi) '#savdo', '#hisobot-savdo' yoki '#jadval' teglari qatnashgan bo'lsa:
+1. Matn yoki rasmdagi barcha tovar/mahsulot nomlari, ularning soni/miqdori va narxini aniqlang.
+2. Har bir pozitsiya uchun: Summa = Miqdor * Narx formulasi bilan aniq hisoblang.
+3. Barcha tovarlar bo'yicha Umumiy Jami Summani hisoblang.
+4. Javobingizni har doim quyidagi sarlavha va xesh-teglar bilan boshlang:
+#hisobot-savdo #jadval #savdo
+📊 **SAVDO VA HISOB-KITOB JADVALI**
+
+5. Ma'lumotlarni tushunarli, chiroyli Markdown jadvali ko'rinishida taqdim eting:
+| № | Mahsulot nomi | Miqdori | Narxi (so'm) | Jami summa (so'm) |
+|---|---|---|---|---|
+...
+Jadvaldan so'ng:
+💰 **UMUMIY JAMI SUMMA: [summa] so'm**
+ko'rinishida alohida qalin harflar bilan yakunlang.
+"""
+
