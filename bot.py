@@ -62,7 +62,9 @@ try:
         clear_page_messages,
         delete_page,
         export_page_text,
-        get_connection
+        get_connection,
+        record_evolution,
+        get_evolution_stats
     )
     from .keyboards import (
         get_main_reply_keyboard,
@@ -108,7 +110,9 @@ except ImportError:
         clear_page_messages,
         delete_page,
         export_page_text,
-        get_connection
+        get_connection,
+        record_evolution,
+        get_evolution_stats
     )
     from keyboards import (
         get_main_reply_keyboard,
@@ -227,29 +231,108 @@ async def handle_start(message: Message, state: FSMContext):
     get_or_create_user(user_id, username, first_name)
     active_sec = get_active_section(user_id)
     active_page = get_or_create_active_page(user_id, active_sec)
+    sec_info = SECTIONS.get(active_sec, {})
 
     welcome_text = (
-        f"👋 *Assalomu alaykum, {first_name}!* \n"
-        f"🤖 *@agentsatka_bot* 100% bulutda (Render.com) faol ishlamoqda!\n\n"
-        f"🔘 *Yangi Ixcham Dizayn (O'ng yonga ustun shaklida):*\n"
-        f"• Pastdagi menyu ixchamlashdi — ekranni to'sib qo'ymasligi uchun `▫️ ⫶ Bo'limlar` orqali 1 ustun qilib ochishingiz yoki `👁️ Yashirish` orqali yashirib qo'yishingiz mumkin.\n"
-        f"• Yoki pastdagi `📱 60% Shaffof Panel` orqali o'ng tomonga joylashgan shaffof panelni ochishingiz mumkin!\n\n"
-        f"💼 *Biznes* | 💻 *Dasturlash* | 🩺 *Tibbiyot*\n"
-        f"❓ *Savollar* | 📋 *Rejalar* | 💡 *G'oyalar*\n\n"
-        f"📊 *Savdo hisob-kitob:* `#savdo`, `#hisobot-savdo`, `#jadval` teglari bilan ro'yxat yoki chek yuborsangiz, avtomatik hisoblab chiroyli jadval qilib beradi.\n\n"
-        f"Quyidagi tugmalardan kerakli bo'limni tanlang:"
+        f"🤖 *Agent Satka (AI Super Agent v3.0)*\n\n"
+        f"Assalomu alaykum, *{first_name}*!\n"
+        f"Matn, ovoz, video yoki fayl yuboring — darhol chuqur tahlil qilib yechim beraman.\n\n"
+        f"📍 *Faol Bo'lim:* {sec_info.get('icon')} *{sec_info.get('title')}*\n"
+        f"📄 *Faol Sahifa:* `{active_page['title']}`\n\n"
+        f"⚡ _Har bir bo'lim alohida mustaqil xotiraga ega. Istalgan payt '📱 60% Bo'limlar Paneli' orqali boshqa mutaxassis agentga o'tishingiz mumkin._"
     )
 
     await message.answer(
         welcome_text,
-        reply_markup=get_collapsed_reply_keyboard(),
+        reply_markup=get_main_reply_keyboard(),
         parse_mode=ParseMode.MARKDOWN
     )
     await message.answer(
-        f"📁 Joriy bo'lim: *{SECTIONS.get(active_sec, {}).get('title')}* (Sahifa: `{active_page['title']}`)",
-        reply_markup=get_collapsible_inline_panel(is_expanded=False, active_section=active_sec, webapp_url=RENDER_EXTERNAL_URL),
+        "📱 *60% Kiber Bo'limlar Paneli:*",
+        reply_markup=get_collapsible_inline_panel(is_expanded=True, active_section=active_sec, webapp_url=RENDER_EXTERNAL_URL),
         parse_mode=ParseMode.MARKDOWN
     )
+
+
+@dp.message(Command("panel"))
+@dp.message(Command("agents"))
+@dp.message(F.text == "📱 60% Bo'limlar Paneli")
+@dp.message(F.text == "▫️ ⫶ Bo'limlar")
+async def handle_open_panel(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+    active_sec = get_active_section(user_id)
+    active_page = get_or_create_active_page(user_id, active_sec)
+    sec_info = SECTIONS.get(active_sec, {})
+
+    text = (
+        f"📱 *60% Kiber Bo'limlar Paneli*\n\n"
+        f"Kerakli ixtisoslashgan bo'limni tanlang. Har bir bo'lim alohida xotira va sahifalarga ega:\n\n"
+        f"📍 Joriy bo'lim: {sec_info.get('icon')} *{sec_info.get('title')}*\n"
+        f"📄 Faol sahifa: `{active_page['title']}`"
+    )
+    await message.answer(
+        text,
+        reply_markup=get_collapsible_inline_panel(is_expanded=True, active_section=active_sec, webapp_url=RENDER_EXTERNAL_URL),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+@dp.message(F.text == "➕ Yangi Sahifa")
+async def handle_reply_new_page(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+    sec_key = get_active_section(user_id)
+    new_page = create_new_page(user_id, sec_key)
+    sec_info = SECTIONS.get(sec_key, {})
+    await message.answer(
+        f"✨ *{sec_info.get('title')}* bo'limida yangi sahifa ochildi: `{new_page['title']}`!\n"
+        f"Endi ushbu yangi mavzu bo'yicha savol, ovoz, video yoki fayl yuborishingiz mumkin.",
+        reply_markup=get_section_inline_keyboard(sec_key, new_page["id"], webapp_url=RENDER_EXTERNAL_URL),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+@dp.message(F.text == "📚 Sahifalarim")
+@dp.message(F.text == "📄 Sahifalar")
+async def handle_reply_pages_list(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+    sec_key = get_active_section(user_id)
+    pages = get_pages_for_section(user_id, sec_key)
+    sec_info = SECTIONS.get(sec_key, {})
+    await message.answer(
+        f"📚 *{sec_info.get('title')}* bo'limidagi sahifalaringiz ({len(pages)} ta):\n"
+        f"Sahifani ko'rish, almashtirish yoki yuklab olish uchun tanlang:",
+        reply_markup=get_pages_list_keyboard(pages, sec_key),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+@dp.message(Command("evolve"))
+@dp.message(F.text == "🧬 O'zini Rivojlantirish")
+async def handle_evolve(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+
+    evo = get_evolution_stats()
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+    loop = asyncio.get_running_loop()
+    evo_text = await loop.run_in_executor(None, ai_service.synthesize_evolution, user_id)
+
+    text = (
+        f"🧬 *AGENT O'Z-O'ZINI RIVOJLANTIRISH TIZIMI*\n\n"
+        f"🎖 *Daraja:* {evo.get('level', 1)} — _{evo.get('title', 'Kiber Agent')}_\n"
+        f"⚡️ *Jami Tajriba (XP):* *{evo.get('total_xp', 0)} XP*\n"
+        f"📊 *Bajarilgan topshiriqlar:* *{evo.get('total_tasks', 0)}* ta\n\n"
+        f"🧠 *Avtonom Mukammallashuv Tahlili:*\n{evo_text}\n\n"
+        f"_Har bir muvaffaqiyatli audio, video, fayl va suhbat orqali agent yanada aqlliroq bo'lib boradi._"
+    )
+    await message.answer(text, parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command("help"))
 async def handle_help(message: Message):
@@ -753,10 +836,21 @@ async def handle_user_text_message(message: Message, state: FSMContext):
     if not user_text:
         return
 
+    # Menyu tugmalarini sun'iy intellektga yubormaslik
+    if user_text in [
+        "📱 60% Bo'limlar Paneli",
+        "▫️ ⫶ Bo'limlar",
+        "➕ Yangi Sahifa",
+        "📚 Sahifalarim",
+        "📄 Sahifalar",
+        "🧬 O'zini Rivojlantirish",
+        "👁️ Yashirish"
+    ]:
+        return
+
     # Foydalanuvchining joriy bo'limi va faol sahifasini olish
     sec_key = get_active_section(user_id)
     active_page = get_or_create_active_page(user_id, sec_key)
-    sec_title = SECTIONS.get(sec_key, {}).get("title")
 
     # Typing indikatori
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
@@ -772,9 +866,11 @@ async def handle_user_text_message(message: Message, state: FSMContext):
         None,
         None
     )
+    record_evolution("text_query", xp=5, details=f"user_{user_id}")
 
     # Javobni yuborish
     await send_long_message(message, response_text)
+
 
 @dp.message(F.photo)
 async def handle_user_photo(message: Message):
@@ -805,10 +901,178 @@ async def handle_user_photo(message: Message):
             img_bytes,
             "image/jpeg"
         )
+        record_evolution("image_processed", xp=10, details=f"user_{user_id}")
         await send_long_message(message, response_text)
     except Exception as e:
         logger.error(f"Rasmni tahlil qilishda xatolik: {e}")
         await message.answer(f"❌ Rasmni tahlil qilishda xatolik yuz berdi: {e}")
+
+
+@dp.message(F.voice | F.audio)
+async def handle_user_voice_or_audio(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+
+    sec_key = get_active_section(user_id)
+    active_page = get_or_create_active_page(user_id, sec_key)
+    caption = (message.caption or "").strip()
+
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
+    try:
+        audio = message.voice or message.audio
+        file_info = await message.bot.get_file(audio.file_id)
+        stream = io.BytesIO()
+        await message.bot.download_file(file_info.file_path, destination=stream)
+        audio_bytes = stream.getvalue()
+
+        mime_type = "audio/ogg" if message.voice else (getattr(audio, "mime_type", None) or "audio/mp3")
+
+        loop = asyncio.get_running_loop()
+        response_text = await loop.run_in_executor(
+            None,
+            ai_service.generate_response,
+            caption,
+            sec_key,
+            active_page["id"],
+            audio_bytes,
+            mime_type
+        )
+        record_evolution("audio_processed", xp=15, details=f"user_{user_id}")
+        await send_long_message(message, response_text)
+    except Exception as e:
+        logger.error(f"Ovozli xabarni tahlil qilishda xatolik: {e}")
+        await message.answer(f"❌ Ovozli xabarni tahlil qilishda xatolik yuz berdi: {e}")
+
+
+@dp.message(F.video)
+async def handle_user_video(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+
+    video = message.video
+    if video.file_size and video.file_size > 20 * 1024 * 1024:
+        await message.answer("⚠️ Video hajmi 20 MB dan oshmasligi kerak (Telegram cheklovi).")
+        return
+
+    sec_key = get_active_section(user_id)
+    active_page = get_or_create_active_page(user_id, sec_key)
+    caption = (message.caption or "").strip()
+
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
+    try:
+        file_info = await message.bot.get_file(video.file_id)
+        stream = io.BytesIO()
+        await message.bot.download_file(file_info.file_path, destination=stream)
+        video_bytes = stream.getvalue()
+
+        loop = asyncio.get_running_loop()
+        response_text = await loop.run_in_executor(
+            None,
+            ai_service.generate_response,
+            caption,
+            sec_key,
+            active_page["id"],
+            video_bytes,
+            video.mime_type or "video/mp4"
+        )
+        record_evolution("video_processed", xp=25, details=f"user_{user_id}")
+        await send_long_message(message, response_text)
+    except Exception as e:
+        logger.error(f"Videoni tahlil qilishda xatolik: {e}")
+        await message.answer(f"❌ Videoni tahlil qilishda xatolik yuz berdi: {e}")
+
+
+@dp.message(F.video_note)
+async def handle_user_video_note(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+
+    video_note = message.video_note
+    if video_note.file_size and video_note.file_size > 20 * 1024 * 1024:
+        await message.answer("⚠️ Dumaloq video hajmi 20 MB dan oshmasligi kerak.")
+        return
+
+    sec_key = get_active_section(user_id)
+    active_page = get_or_create_active_page(user_id, sec_key)
+
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
+    try:
+        file_info = await message.bot.get_file(video_note.file_id)
+        stream = io.BytesIO()
+        await message.bot.download_file(file_info.file_path, destination=stream)
+        video_bytes = stream.getvalue()
+
+        prompt = (
+            "Ushbu dumaloq video xabar (krujochek)ni to'liq tomosha qilib, "
+            "unda gapirilgan barcha nutq va vizual holatni tahlil qilib, "
+            "foydalanuvchining savoliga batafsil, aniq va muloyim yozma javob bering."
+        )
+
+        loop = asyncio.get_running_loop()
+        response_text = await loop.run_in_executor(
+            None,
+            ai_service.generate_response,
+            prompt,
+            sec_key,
+            active_page["id"],
+            video_bytes,
+            "video/mp4"
+        )
+        record_evolution("video_note_processed", xp=25, details=f"user_{user_id}")
+        await send_long_message(message, response_text)
+    except Exception as e:
+        logger.error(f"Dumaloq video xabarda xatolik: {e}")
+        await message.answer(f"❌ Dumaloq video xabarni tahlil qilishda xatolik yuz berdi: {e}")
+
+
+@dp.message(F.document)
+async def handle_user_document(message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(message.from_user):
+        return
+
+    doc = message.document
+    if doc.file_size and doc.file_size > 20 * 1024 * 1024:
+        await message.answer("⚠️ Fayl hajmi 20 MB dan oshmasligi kerak.")
+        return
+
+    sec_key = get_active_section(user_id)
+    active_page = get_or_create_active_page(user_id, sec_key)
+    caption = (message.caption or "").strip()
+    filename = doc.file_name or "fayl.bin"
+    mime_type = doc.mime_type or "application/octet-stream"
+
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
+    try:
+        file_info = await message.bot.get_file(doc.file_id)
+        stream = io.BytesIO()
+        await message.bot.download_file(file_info.file_path, destination=stream)
+        doc_bytes = stream.getvalue()
+
+        prompt = caption or f"'{filename}' faylini tahlil qilib, asosiy mazmunini va yechimini bering."
+
+        loop = asyncio.get_running_loop()
+        response_text = await loop.run_in_executor(
+            None,
+            ai_service.generate_response,
+            prompt,
+            sec_key,
+            active_page["id"],
+            doc_bytes,
+            mime_type
+        )
+        record_evolution("document_processed", xp=15, details=f"user_{user_id}")
+        await send_long_message(message, response_text)
+    except Exception as e:
+        logger.error(f"Faylni tahlil qilishda xatolik: {e}")
+        await message.answer(f"❌ Faylni tahlil qilishda xatolik yuz berdi: {e}")
 
 # ==========================================
 # RENDER 24/7 KEEP-ALIVE VA ISHGA TUSHIRISH
