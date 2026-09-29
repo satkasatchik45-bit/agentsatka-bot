@@ -186,6 +186,15 @@ def set_active_page(user_id: int, page_id: int) -> Optional[Dict[str, Any]]:
     conn.close()
     return dict(updated)
 
+def get_page_by_id(page_id: int) -> Optional[Dict[str, Any]]:
+    """Sahifa ID bo'yicha ma'lumotlarni qaytaradi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM pages WHERE id = ?", (page_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
 def rename_page(page_id: int, user_id: int, new_title: str) -> bool:
     conn = get_connection()
     cursor = conn.cursor()
