@@ -55,6 +55,17 @@ def init_db():
         );
     """)
 
+    # O'z-o'zini rivojlantirish va evolyutsiya (XP / Daraja) jadvali
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_evolution (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_type TEXT NOT NULL,
+            xp INTEGER DEFAULT 15,
+            details TEXT,
+            created_at TEXT
+        );
+    """)
+
     conn.commit()
     conn.close()
 
@@ -320,3 +331,51 @@ def export_page_text(page_id: int, user_id: int) -> Optional[str]:
         lines.append("-" * 40 + "\n")
 
     return "\n".join(lines)
+
+
+def record_evolution(task_type: str, xp: int = 15, details: str = ""):
+    """Agent har bir topshiriqni bajarganda tajriba to'playdi va o'zini mukammallashtiradi"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(
+            "INSERT INTO agent_evolution (task_type, xp, details, created_at) VALUES (?, ?, ?, ?)",
+            (task_type, xp, details, now)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_evolution_stats() -> dict:
+    """Agentning jami tajribasi (XP), darajasi va bajargan vazifalari"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COALESCE(SUM(xp), 0), COUNT(*) FROM agent_evolution")
+        row = cursor.fetchone()
+        total_xp = row[0] if row else 0
+        total_tasks = row[1] if row else 0
+        conn.close()
+
+        level = 1 + (total_xp // 100)
+        level_titles = {
+            1: "Boshlang'ich Kiber Agent",
+            2: "Algoritmik Mutaxassis",
+            3: "Avtonom Kiber Sentineli",
+            4: "Katta AI Tahlilchisi",
+            5: "Grand Kiber Master"
+        }
+        title = level_titles.get(min(level, 5), "Grand Kiber Master v3")
+
+        return {
+            "level": level,
+            "title": title,
+            "total_xp": total_xp,
+            "total_tasks": total_tasks
+        }
+    except Exception:
+        return {"level": 1, "title": "Boshlang'ich Kiber Agent", "total_xp": 0, "total_tasks": 0}
+
