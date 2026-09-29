@@ -1,0 +1,23 @@
+name: 24/7 Cloud Bot Keep Alive
+
+on:
+  schedule:
+    # Har 10 daqiqada Render-ni tashqi tomondan uyg'otib turadi
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keep_alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Health Check
+        run: |
+          echo "Pinging @agentsatka_bot on Render Cloud..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 35 https://agentsatka-bot.onrender.com/health || echo "000")
+          echo "Render HTTP Status: $STATUS"
+          if [ "$STATUS" -eq 200 ]; then
+            echo "Bot is healthy and active!"
+          else
+            echo "Triggering wakeup request..."
+            curl -s -m 45 https://agentsatka-bot.onrender.com/ || true
+          fi
