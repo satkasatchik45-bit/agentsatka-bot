@@ -39,6 +39,8 @@ PORT = int(os.getenv("PORT", "10000"))
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "satka_secret_2026")
+RENDER_API_KEY = os.getenv("RENDER_API_KEY", "rnd_ZozposSR5tia9ixipdEY0UcjKy1b").strip()
+RENDER_SERVICE_ID = os.getenv("RENDER_SERVICE_ID", "srv-datertpsrm7s738eagg0").strip()
 
 # Bo'limlar konfiguratsiyasi
 SECTIONS = {
