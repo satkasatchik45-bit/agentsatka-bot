@@ -22,13 +22,13 @@ from aiogram.types import (
     Message,
     CallbackQuery,
     BufferedInputFile,
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove,
+    Update
 )
 from aiogram.enums import ParseMode, ChatAction
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web, ClientSession
 
 from pathlib import Path
@@ -72,6 +72,12 @@ try:
         get_confirm_keyboard
     )
     from .ai_service import ai_service
+    from .cloud_manager import (
+        setup_cloud_logging,
+        get_recent_logs,
+        trigger_render_restart,
+        get_render_status
+    )
 except ImportError:
     from config import (
         TELEGRAM_BOT_TOKEN,
@@ -108,13 +114,20 @@ except ImportError:
         get_confirm_keyboard
     )
     from ai_service import ai_service
+    from cloud_manager import (
+        setup_cloud_logging,
+        get_recent_logs,
+        trigger_render_restart,
+        get_render_status
+    )
 
-# Logging sozlamalari
+# Logging sozlamalari va xotiradagi log buferi
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("telegram_bot")
+setup_cloud_logging()
 
 bot: Optional[Bot] = None
 dp = Dispatcher(storage=MemoryStorage())
@@ -268,6 +281,26 @@ async def handle_status(message: Message):
         f"⚡ _Kompyuter o'chirilgan holatda ham bot uzluksiz ishlamoqda._"
     )
     await message.answer(text, parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("cloud_logs"))
+async def handle_cloud_logs(message: Message):
+    logs = get_recent_logs(20)
+    if not logs:
+        await message.answer("📋 Hozircha yangi server loglari yo'q.")
+        return
+    log_text = "\n".join(logs)
+    if len(log_text) > 3800:
+        log_text = log_text[-3800:]
+    await message.answer(f"📋 *RENDER BULUT SERVERI LOGLARI:*\n```\n{log_text}\n```", parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("cloud_restart"))
+async def handle_cloud_restart(message: Message):
+    wait_msg = await message.answer("🔄 *Render.com serverini qayta ishga tushirish (restart) so'rovi yuborilmoqda...*", parse_mode=ParseMode.MARKDOWN)
+    res = trigger_render_restart()
+    if res.get("ok"):
+        await wait_msg.edit_text("✅ *Render serveri qayta ishga tushirish rejimiga o'tdi!* Yangi konteyner taxminan 1 daqiqa ichida faollashadi.", parse_mode=ParseMode.MARKDOWN)
+    else:
+        await wait_msg.edit_text(f"❌ Qayta ishga tushirishda xatolik: {res.get('error')}")
 
 @dp.message(Command("new"))
 async def handle_cmd_new(message: Message):
@@ -706,8 +739,27 @@ async def self_ping_loop(base_url: str):
             logger.warning(f"Self-pingda vaqtinchalik ogohlantirish: {e}")
         await asyncio.sleep(540) # 9 daqiqa
 
-async def health_check_handler(request):
+async def health_check_handler(request: web.Request):
     return web.Response(text="Bot is running! @agentsatka_bot 24/7 active.", status=200)
+
+async def logs_handler(request: web.Request):
+    logs = get_recent_logs(80)
+    return web.Response(text="\n".join(logs) or "Loglar hali mavjud emas.", content_type="text/plain")
+
+async def telegram_webhook_handler(request: web.Request):
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if WEBHOOK_SECRET and secret != WEBHOOK_SECRET:
+        logger.warning("Noto'g'ri webhook maxfiy tokeni keldi!")
+        return web.Response(status=403, text="Forbidden")
+
+    try:
+        data = await request.json()
+        update = Update.model_validate(data, context={"bot": bot})
+        asyncio.create_task(dp.feed_update(bot, update))
+        return web.Response(status=200, text="OK")
+    except Exception as e:
+        logger.error(f"Webhook qayta ishlashda xatolik: {e}")
+        return web.Response(status=200, text="OK")
 
 async def main():
     global bot
@@ -720,40 +772,51 @@ async def main():
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     logger.info("Bot tayyorlandi...")
 
-    # 1. Render va Cloud uchun HTTP server (Port binding & Health check)
-    runner = None
-    try:
-        app = web.Application()
-        app.router.add_get("/", health_check_handler)
-        app.router.add_get("/health", health_check_handler)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
-        logger.info(f"Render HTTP server 0.0.0.0:{PORT} da muvaffaqiyatli ochildi.")
-    except Exception as e:
-        logger.warning(f"HTTP serverni ishga tushirishda ogohlantirish: {e}")
+    app = web.Application()
+    app.router.add_get("/", health_check_handler)
+    app.router.add_get("/health", health_check_handler)
+    app.router.add_get("/logs", logs_handler)
+    app.router.add_post(WEBHOOK_PATH, telegram_webhook_handler)
 
-    # 2. Render Free instance uxlab qolmasligi uchun fon pinger
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"Render HTTP server 0.0.0.0:{PORT} da muvaffaqiyatli ochildi.")
+
     if RENDER_EXTERNAL_URL:
+        # 1. Render Bulutida Webhook Rejimi (Tashqi so'rovlar botni avtomatik uyg'otadi)
+        webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
+        logger.info(f"Telegram Webhook sozlanmoqda: {webhook_url}")
+        try:
+            await bot.set_webhook(
+                url=webhook_url,
+                secret_token=WEBHOOK_SECRET,
+                drop_pending_updates=False,
+                allowed_updates=["message", "callback_query"]
+            )
+            logger.info("Telegram Webhook 100% muvaffaqiyatli ulandi!")
+        except Exception as e:
+            logger.error(f"Webhook o'rnatishda xatolik: {e}")
+
+        # 2. Render Free instance uxlab qolmasligi uchun ichki va tashqi keep-alive
         asyncio.create_task(self_ping_loop(RENDER_EXTERNAL_URL))
 
-    # 3. Telegram Polling (Doimiy xabarlarni tinglash)
-    try:
-        while True:
-            try:
-                await bot.delete_webhook(drop_pending_updates=True)
-                logger.info("Telegram polling faol ishlamoqda...")
-                await dp.start_polling(bot)
-            except (KeyboardInterrupt, SystemExit):
-                break
-            except Exception as e:
-                logger.warning(f"Telegram tarmog'ida vaqtinchalik uzilish ({e}). 4 soniyadan so'ng qayta ulanadi...")
-                await asyncio.sleep(4)
-    finally:
-        if runner:
+        logger.info("Bot Render bulutida 24/7 Webhook rejimida faol ishlamoqda.")
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        finally:
             await runner.cleanup()
-        if bot:
+            await bot.session.close()
+    else:
+        # Mahalliy Polling rejimi (kompyuterda test qilish uchun)
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Mahalliy polling rejimi ishga tushdi...")
+            await dp.start_polling(bot)
+        finally:
+            await runner.cleanup()
             await bot.session.close()
 
 if __name__ == "__main__":
