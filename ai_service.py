@@ -5,10 +5,10 @@ from google import genai
 from google.genai import types
 
 try:
-    from .config import GEMINI_API_KEY, MODEL_NAME, SECTIONS
+    from .config import GEMINI_API_KEY, MODEL_NAME, SECTIONS, SAVDO_INSTRUCTION
     from .database import get_page_messages, add_message
 except ImportError:
-    from config import GEMINI_API_KEY, MODEL_NAME, SECTIONS
+    from config import GEMINI_API_KEY, MODEL_NAME, SECTIONS, SAVDO_INSTRUCTION
     from database import get_page_messages, add_message
 
 logger = logging.getLogger("ai_service")
@@ -51,6 +51,11 @@ class AIService:
 
         sec_config = SECTIONS.get(section_key, SECTIONS["savollar"])
         system_prompt = sec_config["prompt"]
+
+        # #savdo, #hisobot-savdo, #jadval teglari tekshiruvi
+        msg_lower = user_message.lower()
+        if any(tag in msg_lower for tag in ["#savdo", "#hisobot-savdo", "#jadval", "savdo hisob"]):
+            system_prompt = f"{system_prompt}\n\n{SAVDO_INSTRUCTION}"
 
         # Ushbu sahifadagi avvalgi xabarlarni yuklash (faqat shu sahifa konteksti)
         recent_messages = get_page_messages(page_id, limit=12)
