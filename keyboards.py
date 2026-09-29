@@ -12,87 +12,70 @@ try:
 except ImportError:
     from config import SECTIONS, RENDER_EXTERNAL_URL
 
-def get_collapsed_reply_keyboard() -> ReplyKeyboardMarkup:
-    """Yashirin / ixcham holatdagi pastki menyu (ekranni egallamaydi, faqat 1 ta kichik belgicha)."""
+def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Doimiy, ixcham va salobatli boshqaruv paneli"""
     kb = [
         [
-            KeyboardButton(text="▫️ ⫶ Bo'limlar"),
-            KeyboardButton(text="📄 Sahifalar")
+            KeyboardButton(text="📱 60% Bo'limlar Paneli"),
+            KeyboardButton(text="➕ Yangi Sahifa")
+        ],
+        [
+            KeyboardButton(text="📚 Sahifalarim"),
+            KeyboardButton(text="🧬 O'zini Rivojlantirish")
         ]
     ]
     return ReplyKeyboardMarkup(
         keyboard=kb,
         resize_keyboard=True,
         is_persistent=True,
-        input_field_placeholder="Xabar yozing yoki bo'lim tanlang..."
+        input_field_placeholder="Matn, ovoz, video yoki fayl yuboring..."
     )
+
+def get_collapsed_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Ixcham pastki menyu"""
+    return get_main_reply_keyboard()
 
 def get_expanded_reply_keyboard() -> ReplyKeyboardMarkup:
-    """O'ng yonga / 1 ustun shaklida joylashgan ixcham bo'limlar menyusi."""
-    kb = [
-        [KeyboardButton(text="💼 Biznes")],
-        [KeyboardButton(text="💻 Dasturlash")],
-        [KeyboardButton(text="🩺 Tibbiyot")],
-        [KeyboardButton(text="❓ Savollar")],
-        [KeyboardButton(text="📋 Rejalar")],
-        [KeyboardButton(text="💡 G'oyalar")],
-        [
-            KeyboardButton(text="📄 Sahifalar"),
-            KeyboardButton(text="👁️ Yashirish")
-        ]
-    ]
-    return ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Bo'lim tanlang..."
-    )
-
-def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
-    """Standart ixcham menyu."""
-    return get_collapsed_reply_keyboard()
+    """1 ustun shaklidagi menyu"""
+    return get_main_reply_keyboard()
 
 def get_collapsible_inline_panel(
-    is_expanded: bool = False,
+    is_expanded: bool = True,
     active_section: str = "savollar",
     webapp_url: Optional[str] = None
 ) -> InlineKeyboardMarkup:
     """
-    Chat ichidagi 1 ustun shaklidagi interaktiv panel:
-    Ochiq va yashirin holatlari mavjud, 60% shaffof WebApp bilan bog'langan.
+    Chat ichidagi 60% interaktiv boshqaruv paneli:
+    Barcha 6 ta mustaqil agent bo'limlari ixcham 2x3 ustunda aks etadi va 60% WebApp bilan bog'langan.
     """
     url = webapp_url or RENDER_EXTERNAL_URL
     kb = []
 
-    if not is_expanded:
-        # Yashirin holati (faqat ochish va WebApp tugmasi)
-        row = [
-            InlineKeyboardButton(text="▫️ ⫶ Bo'limlar (ochish)", callback_data="panel:expand")
-        ]
-        if url:
-            row.append(InlineKeyboardButton(text="📱 60% Shaffof Panel", web_app=WebAppInfo(url=f"{url}/webapp")))
+    # 2 tadan qilib bo'limlarni ixcham joylash
+    sec_keys = list(SECTIONS.keys())
+    for i in range(0, len(sec_keys), 2):
+        row = []
+        k1 = sec_keys[i]
+        s1 = SECTIONS[k1]
+        m1 = "🔘" if k1 == active_section else "▫️"
+        row.append(InlineKeyboardButton(text=f"{m1} {s1['icon']} {s1['title']}", callback_data=f"set_sec:{k1}"))
+        if i + 1 < len(sec_keys):
+            k2 = sec_keys[i+1]
+            s2 = SECTIONS[k2]
+            m2 = "🔘" if k2 == active_section else "▫️"
+            row.append(InlineKeyboardButton(text=f"{m2} {s2['icon']} {s2['title']}", callback_data=f"set_sec:{k2}"))
         kb.append(row)
-    else:
-        # Ochiq holati - 1 ustun shaklida kichik belgichalar bilan
-        for key, s in SECTIONS.items():
-            mark = "🔘" if key == active_section else "▫️"
-            kb.append([
-                InlineKeyboardButton(
-                    text=f"{mark} {s['icon']} {s['title']}",
-                    callback_data=f"set_sec:{key}"
-                )
-            ])
 
-        control_row = [
-            InlineKeyboardButton(text="📚 Sahifalar", callback_data=f"pages_list:{active_section}"),
-            InlineKeyboardButton(text="👁️ Yashirish", callback_data="panel:collapse")
-        ]
-        kb.append(control_row)
+    control_row = [
+        InlineKeyboardButton(text="➕ Yangi Sahifa", callback_data=f"page_new:{active_section}"),
+        InlineKeyboardButton(text="📚 Sahifalarim", callback_data=f"pages_list:{active_section}")
+    ]
+    kb.append(control_row)
 
-        if url:
-            kb.append([
-                InlineKeyboardButton(text="📱 60% Shaffof Web Panel", web_app=WebAppInfo(url=f"{url}/webapp"))
-            ])
+    if url:
+        kb.append([
+            InlineKeyboardButton(text="📱 60% Shaffof Panel (Mini App)", web_app=WebAppInfo(url=f"{url}/webapp"))
+        ])
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -114,7 +97,7 @@ def get_section_inline_keyboard(
         ],
         [
             InlineKeyboardButton(text="✏️ Nomlash", callback_data=f"page_rename:{page_id}"),
-            InlineKeyboardButton(text="▫️ ⫶ Bo'limlar", callback_data="panel:expand")
+            InlineKeyboardButton(text="📱 60% Paneli", callback_data="panel:expand")
         ]
     ]
     if url:
