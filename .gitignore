@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 *.pyo
-workspace/
-.pytest_cache/
+data/bot_database.db
+data/bot_database.db-wal
+data/bot_database.db-shm
 .DS_Store
