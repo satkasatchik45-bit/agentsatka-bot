@@ -740,6 +740,22 @@ async def self_ping_loop(base_url: str):
         await asyncio.sleep(540) # 9 daqiqa
 
 async def health_check_handler(request: web.Request):
+    # Avtomatik o'zini-o'zi tiklash (Self-healing webhook):
+    if RENDER_EXTERNAL_URL and bot:
+        try:
+            expected_webhook = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
+            info = await bot.get_webhook_info()
+            if info.url != expected_webhook:
+                logger.warning(f"Webhook tiklanmoqda: {expected_webhook}")
+                await bot.set_webhook(
+                    url=expected_webhook,
+                    secret_token=WEBHOOK_SECRET,
+                    drop_pending_updates=False,
+                    allowed_updates=["message", "callback_query"]
+                )
+                logger.info("Webhook avtomatik tiklandi!")
+        except Exception as e:
+            logger.warning(f"Health webhook tekshiruvida xatolik: {e}")
     return web.Response(text="Bot is running! @agentsatka_bot 24/7 active.", status=200)
 
 async def logs_handler(request: web.Request):
